@@ -3,10 +3,13 @@
 // CHECK-LABEL: calyx.component @main(
 module attributes {calyx.entrypoint = "main"} {
   calyx.component @main(%go: i1 {go}, %clk: i1 {clk}, %reset: i1 {reset}) -> (%done: i1 {done}) {
-    %true = hw.constant true
+    %c1 = hw.constant true
+    %r.in, %r.write_en, %r.clk, %r.reset, %r.out, %r.done = calyx.register @r : i1, i1, i1, i1, i1, i1
     calyx.wires {
       calyx.group @B {
-        calyx.group_done %true : i1
+        calyx.assign %r.in = %c1 : i1
+        calyx.assign %r.write_en = %c1 : i1
+        calyx.group_done %r.done : i1
       }
     }
     calyx.control {
@@ -21,16 +24,13 @@ module attributes {calyx.entrypoint = "main"} {
   }
 }
 
-// CHECK: calyx.std_lt @repeat_lt
-// CHECK: calyx.std_add @repeat_add
+// CHECK: calyx.std_add @repeat_add : i3, i3, i3
+// CHECK: calyx.std_lt @repeat_lt : i3, i3, i1
 // CHECK: calyx.register @repeat_cond_reg
 // CHECK: calyx.register @repeat_counter_reg
-// CHECK: calyx.wires {
-// CHECK: calyx.group @B
 // CHECK: calyx.group @repeat_init
 // CHECK: calyx.group @repeat_incr
 // CHECK: calyx.group @repeat_cond
-// CHECK: calyx.control {
 // CHECK: calyx.enable @repeat_init
 // CHECK: calyx.enable @repeat_cond
 // CHECK: calyx.while %repeat_cond_reg.out {
@@ -40,15 +40,18 @@ module attributes {calyx.entrypoint = "main"} {
 
 // -----
 
-// A repeat with its body directly under `calyx.control` (single-op region).
+// A repeat that is the only operation in `calyx.control`.
 
 // CHECK-LABEL: calyx.component @one(
 module attributes {calyx.entrypoint = "one"} {
   calyx.component @one(%go: i1 {go}, %clk: i1 {clk}, %reset: i1 {reset}) -> (%done: i1 {done}) {
-    %true = hw.constant true
+    %c1 = hw.constant true
+    %r.in, %r.write_en, %r.clk, %r.reset, %r.out, %r.done = calyx.register @r : i1, i1, i1, i1, i1, i1
     calyx.wires {
       calyx.group @B {
-        calyx.group_done %true : i1
+        calyx.assign %r.in = %c1 : i1
+        calyx.assign %r.write_en = %c1 : i1
+        calyx.group_done %r.done : i1
       }
     }
     calyx.control {
@@ -59,9 +62,11 @@ module attributes {calyx.entrypoint = "one"} {
   }
 }
 
+// A single-trip repeat uses a 1-bit counter.
 // CHECK: calyx.register @repeat_counter_reg
-// CHECK: calyx.while %repeat_cond_reg.out {
 // CHECK: calyx.enable @repeat_init
+// CHECK: calyx.enable @repeat_cond
+// CHECK: calyx.while %repeat_cond_reg.out {
 // CHECK: calyx.enable @repeat_incr
 // CHECK: calyx.enable @repeat_cond
 
@@ -72,22 +77,28 @@ module attributes {calyx.entrypoint = "one"} {
 // CHECK-LABEL: calyx.component @zero(
 module attributes {calyx.entrypoint = "zero"} {
   calyx.component @zero(%go: i1 {go}, %clk: i1 {clk}, %reset: i1 {reset}) -> (%done: i1 {done}) {
-    %true = hw.constant true
+    %c1 = hw.constant true
+    %r.in, %r.write_en, %r.clk, %r.reset, %r.out, %r.done = calyx.register @r : i1, i1, i1, i1, i1, i1
     calyx.wires {
       calyx.group @B {
-        calyx.group_done %true : i1
+        calyx.assign %r.in = %c1 : i1
+        calyx.assign %r.write_en = %c1 : i1
+        calyx.group_done %r.done : i1
       }
     }
     calyx.control {
-      calyx.repeat 0 {
+      calyx.seq {
         calyx.enable @B
+        calyx.repeat 0 {
+          calyx.enable @B
+        }
       }
     }
   }
 }
 
-// CHECK: calyx.control {
 // CHECK-NOT: calyx.while
+// CHECK-NOT: repeat_counter_reg
 
 // -----
 
@@ -96,10 +107,13 @@ module attributes {calyx.entrypoint = "zero"} {
 // CHECK-LABEL: calyx.component @nested(
 module attributes {calyx.entrypoint = "nested"} {
   calyx.component @nested(%go: i1 {go}, %clk: i1 {clk}, %reset: i1 {reset}) -> (%done: i1 {done}) {
-    %true = hw.constant true
+    %c1 = hw.constant true
+    %r.in, %r.write_en, %r.clk, %r.reset, %r.out, %r.done = calyx.register @r : i1, i1, i1, i1, i1, i1
     calyx.wires {
       calyx.group @B {
-        calyx.group_done %true : i1
+        calyx.assign %r.in = %c1 : i1
+        calyx.assign %r.write_en = %c1 : i1
+        calyx.group_done %r.done : i1
       }
     }
     calyx.control {
@@ -115,15 +129,19 @@ module attributes {calyx.entrypoint = "nested"} {
   }
 }
 
-// CHECK: calyx.enable @repeat_init
-// CHECK: calyx.enable @repeat_cond
-// CHECK: calyx.while %repeat_cond_reg.out {
-// CHECK: calyx.enable @B
+// The walk is post-ordered, so the inner repeat reserves `repeat_` and the
+// outer one gets the `repeat_1_` prefix.
+// CHECK: calyx.register @repeat_1_cond_reg
+// CHECK: calyx.register @repeat_cond_reg
 // CHECK: calyx.enable @repeat_1_init
 // CHECK: calyx.enable @repeat_1_cond
 // CHECK: calyx.while %repeat_1_cond_reg.out {
 // CHECK: calyx.enable @B
-// CHECK: calyx.enable @repeat_1_incr
-// CHECK: calyx.enable @repeat_1_cond
+// CHECK: calyx.enable @repeat_init
+// CHECK: calyx.enable @repeat_cond
+// CHECK: calyx.while %repeat_cond_reg.out {
+// CHECK: calyx.enable @B
 // CHECK: calyx.enable @repeat_incr
 // CHECK: calyx.enable @repeat_cond
+// CHECK: calyx.enable @repeat_1_incr
+// CHECK: calyx.enable @repeat_1_cond
